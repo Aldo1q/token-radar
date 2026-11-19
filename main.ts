@@ -1,9 +1,14 @@
-// Token Radar, model radar-2 (Node 22, standard library only).
+// Token Radar, model radar-3 (Node 22, standard library only).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
-// pre-token protocol with the comps-calibrated model in lib/model.ts, writes the ranked board to
-// /output/board.json, and copies this repository's dashboard/ and screenshots/ to /output. Last, it writes
-// /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
+// protocol that records no token with the comps-calibrated model in lib/model.ts, writes the ranked
+// board to /output/board.json, and copies this repository's dashboard/ and screenshots/ to /output.
+// Last, it writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
+//
+// The board ranks only watchlist-clean pre-token protocols: records that are a wrapped or staked
+// product of a token that already trades, or an exchange's own balance sheet, are not ranked — they
+// are listed in the dashboard's coverage audit with the reason each one was screened out, so the
+// board's coverage claim can be checked record by record against the snapshot.
 //
 // The dashboard is a static page, no framework and no network: dashboard/index.html, dashboard/app.css
 // and dashboard/app.js read /output/data.js, which this program writes from the same board.
