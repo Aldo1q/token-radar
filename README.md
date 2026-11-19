@@ -3,7 +3,7 @@
 Every protocol without a token, ranked by what its launch would be worth.
 
 Entry for make.fun's "Build the best token launch radar" bounty
-(`token-radar-01`), model **radar-2**.
+(`token-radar-01`), model **radar-3**.
 
 ## What it is
 
@@ -31,11 +31,19 @@ maturity_mult     = 0.6 + min(age_days, 1095) / 1095 × 0.4   (age unknown: 365d
 
 The board covers all 40 watchlist protocols (TVL ≥ $50M, no token on
 record) plus every pre-token protocol below the floor that the watchlist's
-own rule keeps — 178 rows in all. The 24 largest live-token protocols are
-set aside with their market caps shown, so the board separates protocols
-whose token already trades from those still to come. No protocol name is
-special-cased; the same function scores every row.
+own rule keeps — 197 rows in all. The 145 records the screen sets aside
+(wrapped or staked products of tokens that already trade, exchange
+balance sheets, and the like) are not dropped silently: the dashboard's
+coverage audit lists each one with the reason it was screened out. The 30
+largest live-token protocols are set aside with their market caps shown,
+so the board separates protocols whose token already trades from those
+still to come. No protocol name is special-cased; the same function
+scores every row.
 
+Each row is badged with the basis of its multiple (its category's own
+comps, or the overall fallback) and a confidence tier from the comp
+count, and the detail view shows the full build of the number — TVL,
+multiple, growth and maturity factors — and recomputes it on the page.
 Each row carries a farm plan: seven concrete steps with what they cost
 and how long they take, derived from the protocol's category, chains, TVL
 and age.
