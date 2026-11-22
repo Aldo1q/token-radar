@@ -1,17 +1,26 @@
-// Token Radar, model radar-3 (Node 22, standard library only).
+// Token Radar, model radar-4 (Node 22, standard library only).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
 // protocol that records no token with the comps-calibrated model in lib/model.ts, writes the ranked
 // board to /output/board.json, and copies this repository's dashboard/ and screenshots/ to /output.
 // Last, it writes /output/dossier.json, the summary the judge reads, with the vendored make.fun library.
 //
-// The board ranks only watchlist-clean pre-token protocols: records that are a wrapped or staked
-// product of a token that already trades, or an exchange's own balance sheet, are not ranked — they
-// are listed in the dashboard's coverage audit with the reason each one was screened out, so the
-// board's coverage claim can be checked record by record against the snapshot.
+// Radar-4 prices each launch from the snapshot's own figures with shrinkage calibration: a category's
+// multiple is its live-token median market-cap / TVL pulled toward the overall median by sample size,
+// never a hard clamp; growth is the seven-day TVL change; maturity is a log curve over how long the
+// protocol has run with no token. The board ranks only watchlist-clean pre-token protocols: records
+// that are a wrapped or staked product of a token that already trades, or an exchange's own balance
+// sheet, are not ranked — they are listed in the dashboard's coverage audit with the reason each one
+// was screened out, so the board's coverage claim can be checked record by record against the snapshot.
+//
+// Before anything is written, the board is checked the way the gate checks it: every watchlist slug
+// present, ranks exactly 1..N, implied values never rising with rank, farm steps within their limits.
+// A board that fails is refused here, not handed in.
 //
 // The dashboard is a static page, no framework and no network: dashboard/index.html, dashboard/app.css
-// and dashboard/app.js read /output/data.js, which this program writes from the same board.
+// and dashboard/app.js read /output/data.js, which this program writes from the same board. The page
+// recomputes every row's implied value from the snapshot figures with the same formula, so the number
+// on screen and the number board.json carries are the same arithmetic.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
