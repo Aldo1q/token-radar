@@ -1,34 +1,42 @@
-// The token radar's model, version radar-3: one snapshot of the protocol universe in, one ranked board out.
+// The token radar's model, version radar-4: one snapshot of the protocol universe in, one ranked board out.
 //
-// Radar-3 ranks the pre-token protocols a launch can honestly be claimed for, and accounts for every
+// Radar-4 ranks the pre-token protocols a launch can honestly be claimed for, and accounts for every
 // other record in the snapshot. Of the 758 protocols, 416 already trade (the calibration set, never
-// ranked) and 342 record no token. The board ranks 178 of those: every protocol the snapshot's own
+// ranked) and 342 record no token. The board ranks 197 of those: every protocol the snapshot's own
 // watchlist rule keeps — no token recorded, not a wrapped, staked or bridged product of a token that
 // already trades, not a versioned pool of another protocol, not an exchange balance sheet — with the
-// 40 watchlist protocols (at or above the $50M floor) badged "watchlist" and the rest "early". The 164
+// 40 watchlist protocols (at or above the $50M floor) badged "watchlist" and the rest "early". The 145
 // records the rule screens out (WBTC, Binance staked ETH, Bybit's balance sheet and their kin) are not
 // ranked: each is listed in the dashboard's coverage audit with the reason it was screened, so the
 // board's coverage is a shown fact, not a claim. Ranking a wrapped product of a live token as a
-// "pre-token launch" would be the one dishonest board this model refuses to write. (The snapshot's
-// fields alone keep 197 of the 342 ranked and screen 145; the house's watchlist also reads a parent-
-// protocol field the snapshot does not carry, which is why 19 ranked rows sit above the floor without
-// being on the list.)
+// "pre-token launch" would be the one dishonest board this model refuses to write.
 //
-// Implied value is calibrated to what similar protocols actually trade at, from the snapshot itself:
+// Implied value is calibrated to what similar protocols actually trade at, from the snapshot itself.
+// Radar-4 prices each row in three steps, all of them shown on the board and recomputed live by the
+// page, so the number on screen and the number board.json carries are the same arithmetic:
 //
-//   multiple   = the median market-cap / TVL of the live-token protocols in the same category
-//                (at least 3 of them; fewer, and the category falls back to the median over all
-//                live-token protocols), clamped to [0.05, 1.0]
+//   multiple   = the category's live-token median market-cap / TVL, SHRUNK toward the overall
+//                median by sample size: (n x median + 5 x overall) / (n + 5). A category with
+//                fewer than 3 live comps falls back to the overall median outright. The multiple is
+//                then clamped only to [0.01, 5.0]. Shrinkage replaces radar-3's hard [0.05, 1.0]
+//                clamp, which crushed real comps (a category median of 19x was priced at 1x) and
+//                inflated tiny ones (a median of 0.006x was priced at 0.05x, eight times its comps).
 //   growth     = clamp(change_7d, -60, 120) per cent
 //   growthMult = 1 + (growth / 100) x 0.5
-//   maturity   = 0.6 + min(age_days, 1095) / 1095 x 0.4   (age_days unknown: 365)
+//   maturity   = 0.55 + 0.45 x ln(1 + age_days) / ln(1 + 1095)   (age unknown: the board's median
+//                tokenless age, 421 days here — not a fixed guess). A log curve: a protocol that
+//                has run three tokenless years is worth more than one that launched last month,
+//                but the third year adds less than the first.
 //   implied    = max(1, round(tvl_usd x multiple x growthMult x maturity))
 //
-// Every row also carries the model's own uncertainty: the first and third quartiles of its comps set
-// give a sensitivity range (the same formula at the quartile multiples), and a basis flag says whether
-// the multiple is the category's own median or the overall fallback. The multiple is computed from the
-// snapshot at run time, never hard-coded: the same function scores every row, the dashboard shows the
-// comps table it used, and no protocol name is ever special-cased.
+// Every row also carries the model's own uncertainty: the first and third quartiles of its comps set,
+// shrunk the same way, give a sensitivity range (the same formula at the quartile multiples), and a
+// basis flag says whether the multiple is the category's own shrunk median or the overall fallback.
+// Confidence is stated from three named inputs — how many live comps set the multiple, whether the
+// protocol's age is known, and whether its seven-day growth was reported — and the detail view lists
+// all three. The multiple is computed from the snapshot at run time, never hard-coded: the same
+// function scores every row, the dashboard shows the comps table it used with raw and shrunk
+// multiples side by side, and no protocol name is ever special-cased.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -61,9 +69,12 @@ export interface ModelConstants {
   maturity_floor: number;
   maturity_range: number;
   maturity_days: number;
+  /** Fallback age when the snapshot carries no known tokenless age at all. */
   unknown_age_days: number;
   /** Live comps a category needs before its own median is used. */
   min_comps: number;
+  /** The shrinkage weight: how many phantom overall-median observations each category median carries. */
+  shrink_k: number;
   /** The multiple's clamp, in market-cap per dollar of TVL. */
   multiple_floor: number;
   multiple_cap: number;
@@ -73,17 +84,18 @@ export const MODEL: ModelConstants = {
   growth_weight: 0.5,
   growth_floor: -60,
   growth_cap: 120,
-  maturity_floor: 0.6,
-  maturity_range: 0.4,
+  maturity_floor: 0.55,
+  maturity_range: 0.45,
   maturity_days: 1095,
   unknown_age_days: 365,
   min_comps: 3,
-  multiple_floor: 0.05,
-  multiple_cap: 1.0,
+  shrink_k: 5,
+  multiple_floor: 0.01,
+  multiple_cap: 5.0,
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many live-token protocols the Live comps view carries, by market cap. */
 export const LIVE_ROWS = 30;
@@ -93,6 +105,16 @@ export interface FarmStep {
   text: string;
   cost: string;
   time: string;
+}
+
+/** A farm plan's totals, computed from the same inputs as its steps: capital, gas, setup and hold. */
+export interface PlanTotals {
+  capital_usd: number;
+  gas_low_usd: number;
+  gas_high_usd: number;
+  setup_min: number;
+  upkeep_min_week: number;
+  hold_days: number;
 }
 
 /** One row of board.json: the ranked board's row. */
@@ -114,19 +136,25 @@ export interface BoardRow {
   age_days: number | null;
   implied_value_usd: number;
   model: {
+    /** The shrunk multiple the row is priced at (full precision; the page recomputes from it). */
     category_multiple: number;
-    /** "category" when the multiple is the category's own median, "overall" on the fallback. */
+    /** The category's raw median before shrinkage, for the comps table's honesty check. */
+    raw_category_multiple: number | null;
+    /** "category" when the multiple is the category's own shrunk median, "overall" on the fallback. */
     comps_basis: 'category' | 'overall';
     comps_n: number;
     growth_pct: number;
     growth_multiplier: number;
     maturity_multiplier: number;
     age_days: number | null;
+    /** The age the maturity curve actually used: the protocol's own, or the board's median age. */
+    age_used_days: number;
     /** The implied value at the comps set's first and third quartile multiples: the model's range. */
     implied_low_usd: number;
     implied_high_usd: number;
   };
   farm_steps: string[];
+  plan: PlanTotals;
 }
 
 /** The dashboard's compact view of one row. */
@@ -146,12 +174,16 @@ export interface RadarRow {
   /** implied / TVL: what the model prices each dollar of TVL at, after every adjustment. */
   effective_multiple: number;
   category_multiple: number;
+  raw_category_multiple: number | null;
   comps_basis: 'category' | 'overall';
   comps_n: number;
-  /** high: the category's own median from 8+ live comps; medium: its own median from 3 to 7; low: the overall fallback. */
+  /** high: the category's own shrunk median from 8+ live comps; medium: its own median from 3 to 7; low: the overall fallback. */
   confidence: 'high' | 'medium' | 'low';
+  /** The three named inputs the confidence tier rests on, shown in the detail view. */
+  confidence_reasons: string[];
   growth_multiplier: number;
   maturity_multiplier: number;
+  age_used_days: number;
   implied_low_usd: number;
   implied_high_usd: number;
   /** 0..100, display only: growth, size and maturity percentiles among the board's rows. Rank is by implied value, never by signal. */
@@ -162,6 +194,7 @@ export interface RadarRow {
   growth_delta_category: number | null;
   /** The same farm plan board.json carries, so the page renders the board's own steps, never a second version. */
   farm_steps: string[];
+  plan: PlanTotals;
 }
 
 /** A live-token protocol: it already trades, so the board shows the market's own value, not a model's. */
@@ -181,7 +214,10 @@ export interface LiveRow {
 export interface CompsRow {
   category: string;
   n: number;
-  median_multiple: number;
+  /** The category's raw median mcap/TVL, before shrinkage. */
+  raw_median_multiple: number;
+  /** The multiple actually used for the category's rows: the shrunk median (or the overall median on fallback). */
+  used_multiple: number;
   q1_multiple: number;
   q3_multiple: number;
   used: boolean;
@@ -210,6 +246,10 @@ export interface RadarStats {
   aggregate_tvl_usd: number;
   median_multiple: number;
   fallback_rows: number;
+  /** The tokenless age the maturity curve uses when a protocol's own age is unknown. */
+  median_age_days: number;
+  /** How many categories price off their own shrunk median instead of the overall fallback. */
+  shrunk_categories: number;
 }
 
 /** The dashboard's alert rails: all three are read off the board's own rows, nothing is invented. */
@@ -235,6 +275,7 @@ export interface RadarData {
   early_size: number;
   live_size: number;
   overall_multiple: number;
+  median_age_days: number;
   stats: RadarStats;
   alerts: RadarAlerts;
   comps: CompsRow[];
@@ -301,8 +342,9 @@ function percentile(values: number[], value: number): number {
 const clampMultiple = (model: ModelConstants, raw: number): number =>
   Math.min(model.multiple_cap, Math.max(model.multiple_floor, raw));
 
-/** One category's calibration: the clamped median and quartiles of its live ratios, and their count. */
-interface CategoryCalib {
+/** One category's calibration: the raw median and quartiles, and the shrunk figures the rows use. */
+export interface CategoryCalib {
+  rawMedian: number;
   multiple: number;
   q1: number;
   q3: number;
@@ -312,8 +354,10 @@ interface CategoryCalib {
 /**
  * The comps calibration: for every category, the median market-cap / TVL of its live-token protocols
  * (those with a market cap and a positive TVL) with its first and third quartiles, and the same over
- * all live-token protocols. A category's median is used only when at least `min_comps` live protocols
- * set it; otherwise the category falls back to the overall figures. Every multiple is clamped.
+ * all live-token protocols. Each category's figures are shrunk toward the overall figures by the
+ * model's weight: (n x category + k x overall) / (n + k). A thin category's wild median is pulled
+ * most of the way to the overall; a thick category's median barely moves. Every multiple is clamped
+ * only to the wide [0.01, 5.0] band.
  */
 export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): {
   byCategory: Map<string, CategoryCalib>;
@@ -331,22 +375,35 @@ export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): {
     if (list) list.push(ratio);
     else byCategory.set(key, [ratio]);
   }
-  const summarize = (ratios: number[]): CategoryCalib => {
+  const summarize = (ratios: number[]): { rawMedian: number; rawQ1: number; rawQ3: number; n: number } => {
     const s = [...ratios].sort((a, b) => a - b);
-    return {
-      multiple: clampMultiple(model, median(s)),
-      q1: clampMultiple(model, quartile(s, 0.25)),
-      q3: clampMultiple(model, quartile(s, 0.75)),
-      n: s.length,
-    };
+    return { rawMedian: median(s), rawQ1: quartile(s, 0.25), rawQ3: quartile(s, 0.75), n: s.length };
   };
-  const overall = summarize(all);
+  const overallRaw = summarize(all);
+  const overall: CategoryCalib = {
+    rawMedian: overallRaw.rawMedian,
+    multiple: clampMultiple(model, overallRaw.rawMedian),
+    q1: clampMultiple(model, overallRaw.rawQ1),
+    q3: clampMultiple(model, overallRaw.rawQ3),
+    n: overallRaw.n,
+  };
+  const k = model.shrink_k;
   const result = new Map<string, CategoryCalib>();
-  for (const [key, ratios] of byCategory) result.set(key, summarize(ratios));
+  for (const [key, ratios] of byCategory) {
+    const raw = summarize(ratios);
+    const n = raw.n;
+    result.set(key, {
+      rawMedian: raw.rawMedian,
+      multiple: clampMultiple(model, (n * raw.rawMedian + k * overallRaw.rawMedian) / (n + k)),
+      q1: clampMultiple(model, (n * raw.rawQ1 + k * overallRaw.rawQ1) / (n + k)),
+      q3: clampMultiple(model, (n * raw.rawQ3 + k * overallRaw.rawQ3) / (n + k)),
+      n,
+    });
+  }
   return { byCategory: result, overall };
 }
 
-/** The comps one category scores from: its own set when enough live protocols set it, else the overall. */
+/** The comps one category scores from: its own shrunk set when enough live protocols set it, else the overall. */
 export function compsFor(
   category: string | null,
   calib: { byCategory: Map<string, CategoryCalib>; overall: CategoryCalib },
@@ -361,16 +418,18 @@ export function compsFor(
 function adjustments(
   protocol: SnapshotProtocol,
   asOf: string,
+  medianAge: number,
   model: ModelConstants,
-): { growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
+): { growthPct: number; growthMult: number; maturityMult: number; age: number | null; ageUsed: number } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const ageForModel = age ?? model.unknown_age_days;
+  const ageUsed = age ?? medianAge;
   const maturityMult =
-    model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
-  return { growthPct, growthMult, maturityMult, age };
+    model.maturity_floor +
+    (Math.log1p(Math.min(Math.max(ageUsed, 0), model.maturity_days * 4)) / Math.log1p(model.maturity_days)) * model.maturity_range;
+  return { growthPct, growthMult, maturityMult, age, ageUsed };
 }
 
 /** The implied value, its sensitivity range and every input, for one protocol. */
@@ -378,21 +437,24 @@ export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   calib: { byCategory: Map<string, CategoryCalib>; overall: CategoryCalib },
+  medianAge: number,
   model: ModelConstants = MODEL,
 ): {
   implied: number;
   impliedLow: number;
   impliedHigh: number;
   multiple: number;
+  rawMultiple: number | null;
   compsN: number;
   basis: 'category' | 'overall';
   growthPct: number;
   growthMult: number;
   maturityMult: number;
   age: number | null;
+  ageUsed: number;
 } {
   const { comps, basis } = compsFor(protocol.category, calib, model);
-  const adj = adjustments(protocol, asOf, model);
+  const adj = adjustments(protocol, asOf, medianAge, model);
   const at = (multiple: number): number =>
     Math.max(1, Math.round(protocol.tvl_usd * multiple * adj.growthMult * adj.maturityMult));
   return {
@@ -400,12 +462,14 @@ export function impliedValue(
     impliedLow: at(comps.q1),
     impliedHigh: at(comps.q3),
     multiple: comps.multiple,
+    rawMultiple: basis === 'category' ? comps.rawMedian : null,
     compsN: comps.n,
     basis,
     growthPct: adj.growthPct,
     growthMult: adj.growthMult,
     maturityMult: adj.maturityMult,
     age: adj.age,
+    ageUsed: adj.ageUsed,
   };
 }
 
@@ -501,13 +565,15 @@ function categoryContext(board: BoardRow[]): Map<string, { tvls: number[]; growt
  * live-token protocols are the calibration set and are never ranked; the screened-out records are
  * listed by screenedOut, never ranked.
  */
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; medianAge: number } {
   const calib = calibrate(snapshot, model);
   const watch = new Set(snapshot.watchlist);
   const chosen = snapshot.protocols.filter(isWatchlistClean);
-  const scored = chosen.map((p) => ({ p, v: impliedValue(p, snapshot.as_of, calib, model) }));
+  const knownAges = chosen.map((p) => ageDays(snapshot.as_of, p.listed_at)).filter((a): a is number => a !== null);
+  const medianAge = knownAges.length > 0 ? Math.round(median([...knownAges].sort((a, b) => a - b))) : model.unknown_age_days;
+  const scored = chosen.map((p) => ({ p, v: impliedValue(p, snapshot.as_of, calib, medianAge, model) }));
   scored.sort((a, b) => b.v.implied - a.v.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
-  return scored.map((s, i) => ({
+  const board = scored.map((s, i) => ({
     rank: i + 1,
     slug: s.p.slug,
     name: s.p.name,
@@ -525,17 +591,21 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     implied_value_usd: s.v.implied,
     model: {
       category_multiple: s.v.multiple,
+      raw_category_multiple: s.v.rawMultiple,
       comps_basis: s.v.basis,
       comps_n: s.v.compsN,
       growth_pct: s.v.growthPct,
       growth_multiplier: round4(s.v.growthMult),
       maturity_multiplier: round4(s.v.maturityMult),
       age_days: s.v.age,
+      age_used_days: s.v.ageUsed,
       implied_low_usd: s.v.impliedLow,
       implied_high_usd: s.v.impliedHigh,
     },
     farm_steps: farmSteps(s.p, s.v.age).map(stepText),
+    plan: planTotals(s.p, s.v.age),
   }));
+  return { board, medianAge };
 }
 
 /** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
@@ -587,6 +657,33 @@ function gasFor(chain: string): string {
   if (c === 'tron') return 'about $1';
   if (c === 'bitcoin') return '$2 to $5';
   return '$0.10 to $1';
+}
+
+/** One transaction's gas on a chain as a low/high dollar range, at ordinary load. */
+function gasRange(chain: string): { low: number; high: number } {
+  const c = chain.toLowerCase();
+  if (c === 'ethereum') return { low: 5, high: 15 };
+  if (c === 'solana' || c === 'sui' || c === 'aptos' || c === 'near') return { low: 0.01, high: 0.05 };
+  if (c === 'tron') return { low: 0.5, high: 1.5 };
+  if (c === 'bitcoin') return { low: 2, high: 5 };
+  return { low: 0.1, high: 1 };
+}
+
+/**
+ * A plan's totals, from the same inputs as its steps: the capital tier, six transactions of the
+ * first chain's gas (setup, second position, two weekly habits, claim, exit), about 35 minutes of
+ * setup, about 15 minutes of upkeep a week, and the age-based hold.
+ */
+export function planTotals(p: SnapshotProtocol, age: number | null): PlanTotals {
+  const g = gasRange(chainOf(p));
+  return {
+    capital_usd: capitalFor(p),
+    gas_low_usd: Math.round(g.low * 6 * 100) / 100,
+    gas_high_usd: Math.round(g.high * 6 * 100) / 100,
+    setup_min: 35,
+    upkeep_min_week: 15,
+    hold_days: holdDaysFor(age),
+  };
 }
 
 /** The category's action, in the words a farmer can follow. */
@@ -742,13 +839,32 @@ export function liveRows(snapshot: Snapshot): LiveRow[] {
     }));
 }
 
+/** The three named inputs behind a row's confidence tier, in the detail view's words. */
+export function confidenceReasons(row: {
+  comps_basis: 'category' | 'overall';
+  comps_n: number;
+  age_days: number | null;
+  change_7d: number | null;
+}): string[] {
+  const reasons: string[] = [];
+  if (row.comps_basis === 'category') {
+    reasons.push(`${row.comps_n} live comps set this category's multiple`);
+  } else {
+    reasons.push(`too few live comps in this category — priced on the overall median of ${row.comps_n} live protocols`);
+  }
+  reasons.push(row.age_days !== null ? `age known: ${row.age_days} days with no token` : 'age unknown: the board median age is used');
+  reasons.push(row.change_7d !== null ? 'seven-day growth reported' : 'seven-day growth unreported — treated as 0%');
+  return reasons;
+}
+
 /** A board row's compact form for data.js, enriched with the category context and the signal. */
 export function radarRow(
   row: BoardRow,
   ctx: Map<string, { tvls: number[]; growthMedian: number | null }>,
   growthValues: number[],
   logTvlValues: number[],
-): RadarRow {  const entry = ctx.get(row.category ?? 'Unknown');
+): RadarRow {
+  const entry = ctx.get(row.category ?? 'Unknown');
   const tvlPct = entry ? percentile(entry.tvls, row.tvl_usd) : 0;
   const growthDelta =
     row.change_7d !== null && entry && entry.growthMedian !== null
@@ -756,7 +872,9 @@ export function radarRow(
       : null;
   const growthPct = percentile(growthValues, Math.min(120, Math.max(-60, row.change_7d ?? 0)));
   const sizePct = percentile(logTvlValues, Math.log10(Math.max(1, row.tvl_usd)));
-  const maturityPct = Math.round((row.model.maturity_multiplier - MODEL.maturity_floor) / MODEL.maturity_range * 100);
+  const maturityPct = Math.round(
+    ((row.model.maturity_multiplier - MODEL.maturity_floor) / MODEL.maturity_range) * 100,
+  );
   const signal = Math.round(0.4 * growthPct + 0.3 * sizePct + 0.3 * maturityPct);
   return {
     rank: row.rank,
@@ -773,17 +891,26 @@ export function radarRow(
     implied_value_usd: row.implied_value_usd,
     effective_multiple: row.tvl_usd > 0 ? round4(row.implied_value_usd / row.tvl_usd) : 0,
     category_multiple: row.model.category_multiple,
+    raw_category_multiple: row.model.raw_category_multiple,
     comps_basis: row.model.comps_basis,
     comps_n: row.model.comps_n,
     confidence: row.model.comps_basis === 'overall' ? 'low' : row.model.comps_n >= 8 ? 'high' : 'medium',
+    confidence_reasons: confidenceReasons({
+      comps_basis: row.model.comps_basis,
+      comps_n: row.model.comps_n,
+      age_days: row.age_days,
+      change_7d: row.change_7d,
+    }),
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
+    age_used_days: row.model.age_used_days,
     implied_low_usd: row.model.implied_low_usd,
     implied_high_usd: row.model.implied_high_usd,
     signal,
     tvl_pct_category: tvlPct,
     growth_delta_category: growthDelta,
     farm_steps: row.farm_steps,
+    plan: row.plan,
   };
 }
 
@@ -801,7 +928,8 @@ export function compsTable(
     rows.push({
       category,
       n: entry.n,
-      median_multiple: round4(entry.multiple),
+      raw_median_multiple: round4(entry.rawMedian),
+      used_multiple: round4(entry.multiple),
       q1_multiple: round4(entry.q1),
       q3_multiple: round4(entry.q3),
       used: entry.n >= model.min_comps,
@@ -855,7 +983,7 @@ export function compsPeers(snapshot: Snapshot, board: BoardRow[]): Record<string
 
 /** Everything the dashboard renders, from the snapshot. */
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
-  const board = buildBoard(snapshot, model);
+  const { board, medianAge } = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
   const early = board.filter((r) => r.stage === 'early').length;
   const { comps, overall } = compsTable(snapshot, board, model);
@@ -874,6 +1002,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     aggregate_tvl_usd: board.reduce((sum, r) => sum + r.tvl_usd, 0),
     median_multiple: round4(calib.overall.multiple),
     fallback_rows: board.filter((r) => r.model.comps_basis === 'overall').length,
+    median_age_days: medianAge,
+    shrunk_categories: comps.filter((c) => c.used).length,
   };
   const radar: RadarData = {
     as_of: snapshot.as_of,
@@ -887,6 +1017,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     early_size: early,
     live_size: live.length,
     overall_multiple: overall,
+    median_age_days: medianAge,
     stats,
     alerts: buildAlerts(board),
     comps,
