@@ -7,7 +7,7 @@
 Every protocol without a token, ranked by what its launch would be worth.
 
 Entry for make.fun's "Build the best token launch radar" bounty
-(`token-radar-01`), model **radar-3**.
+(`token-radar-01`), model **radar-4**.
 
 ## What it is
 
@@ -20,18 +20,28 @@ its TVL, its seven-day growth, and how long it has run with no token.
 The multiple is not a guess. It is the median market-cap per dollar of
 TVL of the live-token protocols in the row's own category, computed from
 the snapshot at run time — so a lending launch is priced like lending, not
-like a DEX. A category with fewer than 3 live comps falls back to the
-median over all live-token protocols. Every multiple is clamped to
-[0.05, 1.0].
+like a DEX — then shrunk toward the overall median by sample size:
+(n &times; category median + 5 &times; overall median) / (n + 5). A thin
+category's wild median is pulled most of the way to the overall; a thick
+category's barely moves. A category with fewer than 3 live comps falls
+back to the median over all live-token protocols. Multiples are only
+bounded to [0.01, 5.0] — radar-3's hard [0.05, 1.0] clamp crushed real
+comps (a 19x category median priced at 1x) and inflated tiny ones.
 
 ## The model
 
 ```
 implied = round( tvl_usd × category_multiple × growth_mult × maturity_mult )
-category_multiple = median(mcap / TVL) of live-token protocols in the category
+category_multiple = shrunk median(mcap / TVL) of live-token protocols in the category
+                    = (n × category median + 5 × overall median) / (n + 5), bounded [0.01, 5.0]
 growth_mult       = 1 + clamp(change_7d, -60, 120) / 100 × 0.5
-maturity_mult     = 0.6 + min(age_days, 1095) / 1095 × 0.4   (age unknown: 365d)
+maturity_mult     = 0.55 + 0.45 × ln(1 + age_days) / ln(1 + 1095)   (age unknown: board median age)
 ```
+
+The board shows the same arithmetic twice: a worked example for the
+rank-1 row on the board itself, and the full build of the number in every
+protocol's detail view, recomputed live by the page — the number on
+screen and the number `board.json` carries are the same.
 
 The board covers all 40 watchlist protocols (TVL ≥ $50M, no token on
 record) plus every pre-token protocol below the floor that the watchlist's
@@ -45,12 +55,15 @@ still to come. No protocol name is special-cased; the same function
 scores every row.
 
 Each row is badged with the basis of its multiple (its category's own
-comps, or the overall fallback) and a confidence tier from the comp
-count, and the detail view shows the full build of the number — TVL,
-multiple, growth and maturity factors — and recomputes it on the page.
-Each row carries a farm plan: seven concrete steps with what they cost
-and how long they take, derived from the protocol's category, chains, TVL
-and age.
+shrunk comps, or the overall fallback) and a confidence tier from three
+named inputs — how many live comps set the multiple, whether the age is
+known, and whether seven-day growth was reported — and the detail view
+shows the full build of the number — TVL, multiple, growth and maturity
+factors — and recomputes it on the page. Each row carries a farm plan:
+seven concrete steps with what they cost and how long they take, derived
+from the protocol's category, chains, TVL and age, shown as a table with
+a totals bar (capital, gas across the plan's six transactions, setup,
+upkeep and hold).
 
 ## Files
 
