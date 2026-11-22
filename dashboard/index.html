@@ -17,6 +17,8 @@
 
   <section class="modelstrip" id="modelstrip" aria-label="How the value is worked out"></section>
 
+  <section class="worked" id="worked" aria-label="Worked example for the top-ranked protocol"></section>
+
   <section class="alerts" id="alerts" aria-label="Radar alerts"></section>
 
   <div class="controls" id="controls">
@@ -44,13 +46,14 @@
   <section class="below">
     <div class="card" id="comps-card">
       <h2>Category benchmarks — the live comps behind every multiple</h2>
-      <p class="note">Each pre-token protocol is priced off the live-token protocols in its own category: the median of their market cap / TVL. A category with fewer than 3 live comps falls back to the overall median, and its rows are badged low confidence. Quartiles give the detail view's sensitivity range.</p>
-      <div class="table-wrap"><table id="comps-table"><thead><tr><th>Category</th><th class="num">Live comps</th><th class="num">Median mcap/TVL</th><th class="num">Q1 – Q3</th><th class="num">Board rows</th><th>Basis</th></tr></thead><tbody id="comps-rows"></tbody></table></div>
+      <p class="note">Each pre-token protocol is priced off the live-token protocols in its own category: the median of their market cap / TVL, shrunk toward the overall median by sample size — (n &times; category median + 5 &times; overall median) / (n + 5) — so a thin category's wild median is pulled most of the way to the overall, and a thick category's barely moves. A category with fewer than 3 live comps falls back to the overall median and its rows are badged low confidence. Quartiles give the detail view's sensitivity range. No hard clamp: multiples are only bounded to 0.01x–5.00x.</p>
+      <div class="table-wrap"><table id="comps-table"><thead><tr><th>Category</th><th class="num">Live comps</th><th class="num">Raw median</th><th class="num">Multiple used</th><th class="num">Q1 – Q3</th><th class="num">Board rows</th><th>Basis</th></tr></thead><tbody id="comps-rows"></tbody></table></div>
     </div>
     <div class="card" id="audit-card">
       <h2>Coverage audit — where all 758 records went</h2>
       <p class="note" id="audit-note"></p>
       <p class="note">The board never ranks a wrapped or staked product of a token that already trades, a bridge of wrapped assets, an exchange's balance sheet, or a versioned pool of another protocol: those records are listed under <b>Screened out</b>, each with its reason. A protocol <i>records no token</i> in DefiLlama's data — that is never proof it has none.</p>
+      <p class="note" id="coverage-note"></p>
     </div>
   </section>
 
